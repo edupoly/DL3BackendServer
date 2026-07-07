@@ -2,12 +2,13 @@ const express = require("express");
 const fs = require("fs/promises");
 const jwt = require("jsonwebtoken");
 const path = require("path");
-
+const cors = require("cors");
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
 const DB_PATH = path.join(__dirname, "db.json");
 
+app.use(cors());
 app.use(express.json());
 
 const defaultDb = {
@@ -68,62 +69,72 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-app.post("/login", asyncHandler(async (req, res) => {
-  const { email, password } = req.body || {};
-  const db = await readDb();
+app.post(
+  "/login",
+  asyncHandler(async (req, res) => {
+    const { email, password } = req.body || {};
+    const db = await readDb();
 
-  const user = db.users.find(
-    (entry) => entry.email === email && entry.password === password,
-  );
+    const user = db.users.find(
+      (entry) => entry.email === email && entry.password === password,
+    );
 
-  if (!user) {
-    return res.status(401).json({ error: "Invalid credentials" });
-  }
+    if (!user) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
 
-  const token = jwt.sign({ email: user.email }, JWT_SECRET, {
-    expiresIn: "1h",
-  });
+    const token = jwt.sign({ email: user.email }, JWT_SECRET, {
+      expiresIn: "1h",
+    });
 
-  res.json({
-    message: "Login successful",
-    token,
-    user: { email: user.email },
-  });
-}));
+    res.json({
+      message: "Login successful",
+      token,
+      user: { email: user.email },
+    });
+  }),
+);
 
-app.get("/users", authenticateToken, asyncHandler(async (req, res) => {
-  const db = await readDb();
-  const users = db.users.map(({ password, ...user }) => user);
+app.get(
+  "/users",
+  authenticateToken,
+  asyncHandler(async (req, res) => {
+    const db = await readDb();
+    const users = db.users.map(({ password, ...user }) => user);
 
-  res.json({
-    message: "Users fetched successfully",
-    users,
-  });
-}));
+    res.json({
+      message: "Users fetched successfully",
+      users,
+    });
+  }),
+);
 
-app.post("/users", asyncHandler(async (req, res) => {
-  const { email, password } = req.body || {};
+app.post(
+  "/users",
+  asyncHandler(async (req, res) => {
+    const { email, password } = req.body || {};
 
-  if (!email || !password) {
-    return res.status(400).json({ error: "Email and password are required" });
-  }
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password are required" });
+    }
 
-  const db = await readDb();
-  const existingUser = db.users.find((user) => user.email === email);
+    const db = await readDb();
+    const existingUser = db.users.find((user) => user.email === email);
 
-  if (existingUser) {
-    return res.status(409).json({ error: "User already exists" });
-  }
+    if (existingUser) {
+      return res.status(409).json({ error: "User already exists" });
+    }
 
-  const user = { id: getNextId(db.users), email, password };
-  db.users.push(user);
-  await writeDb(db);
+    const user = { id: getNextId(db.users), email, password };
+    db.users.push(user);
+    await writeDb(db);
 
-  res.status(201).json({
-    message: "User created successfully",
-    user: { id: user.id, email: user.email },
-  });
-}));
+    res.status(201).json({
+      message: "User created successfully",
+      user: { id: user.id, email: user.email },
+    });
+  }),
+);
 
 app.get("/products", async (req, res) => {
   try {
@@ -158,159 +169,195 @@ app.get("/products", async (req, res) => {
   }
 });
 
-app.post("/products", authenticateToken, asyncHandler(async (req, res) => {
-  const product = req.body || {};
+app.post(
+  "/products",
+  authenticateToken,
+  asyncHandler(async (req, res) => {
+    const product = req.body || {};
 
-  if (!product.title) {
-    return res.status(400).json({ error: "Product title is required" });
-  }
-
-  const db = await readDb();
-  const newProduct = { id: getNextId(db.products), ...product };
-  db.products.push(newProduct);
-  await writeDb(db);
-
-  res.status(201).json({
-    message: "Product created successfully",
-    product: newProduct,
-  });
-}));
-
-app.patch("/products/:id", authenticateToken, asyncHandler(async (req, res) => {
-  const db = await readDb();
-  const product = db.products.find(
-    (entry) => Number(entry.id) === Number(req.params.id),
-  );
-
-  if (!product) {
-    return res.status(404).json({ error: "Product not found" });
-  }
-
-  Object.assign(product, req.body, { id: product.id });
-
-  db.cart = db.cart.map((item) => {
-    if (Number(item.productId) !== Number(product.id)) {
-      return item;
+    if (!product.title) {
+      return res.status(400).json({ error: "Product title is required" });
     }
 
-    return { ...item, product };
-  });
+    const db = await readDb();
+    const newProduct = { id: getNextId(db.products), ...product };
+    db.products.push(newProduct);
+    await writeDb(db);
 
-  await writeDb(db);
-
-  res.json({
-    message: "Product updated successfully",
-    product,
-  });
-}));
-
-app.delete("/products/:id", authenticateToken, asyncHandler(async (req, res) => {
-  const db = await readDb();
-  const productId = Number(req.params.id);
-  const initialLength = db.products.length;
-
-  db.products = db.products.filter((product) => Number(product.id) !== productId);
-
-  if (db.products.length === initialLength) {
-    return res.status(404).json({ error: "Product not found" });
-  }
-
-  db.cart = db.cart.filter((item) => Number(item.productId) !== productId);
-  await writeDb(db);
-
-  res.json({
-    message: "Product removed successfully",
-    products: db.products,
-  });
-}));
-
-app.get("/cart", authenticateToken, asyncHandler(async (req, res) => {
-  const db = await readDb();
-
-  res.json({
-    message: "Cart fetched successfully",
-    cart: db.cart,
-  });
-}));
-
-app.post("/cart", authenticateToken, asyncHandler(async (req, res) => {
-  const { productId, quantity = 1 } = req.body || {};
-
-  if (!productId || quantity < 1) {
-    return res.status(400).json({
-      error: "Product id and a positive quantity are required",
+    res.status(201).json({
+      message: "Product created successfully",
+      product: newProduct,
     });
-  }
+  }),
+);
 
-  const db = await readDb();
-  const product = db.products.find((entry) => Number(entry.id) === Number(productId));
+app.patch(
+  "/products/:id",
+  authenticateToken,
+  asyncHandler(async (req, res) => {
+    const db = await readDb();
+    const product = db.products.find(
+      (entry) => Number(entry.id) === Number(req.params.id),
+    );
 
-  if (!product) {
-    return res.status(404).json({ error: "Product not found" });
-  }
+    if (!product) {
+      return res.status(404).json({ error: "Product not found" });
+    }
 
-  const existingItem = db.cart.find(
-    (item) => Number(item.productId) === Number(productId),
-  );
+    Object.assign(product, req.body, { id: product.id });
 
-  if (existingItem) {
-    existingItem.quantity += Number(quantity);
-  } else {
-    db.cart.push({
-      id: getNextId(db.cart),
-      productId: product.id,
-      quantity: Number(quantity),
+    db.cart = db.cart.map((item) => {
+      if (Number(item.productId) !== Number(product.id)) {
+        return item;
+      }
+
+      return { ...item, product };
+    });
+
+    await writeDb(db);
+
+    res.json({
+      message: "Product updated successfully",
       product,
     });
-  }
+  }),
+);
 
-  await writeDb(db);
+app.delete(
+  "/products/:id",
+  authenticateToken,
+  asyncHandler(async (req, res) => {
+    const db = await readDb();
+    const productId = Number(req.params.id);
+    const initialLength = db.products.length;
 
-  res.status(201).json({
-    message: "Cart updated successfully",
-    cart: db.cart,
-  });
-}));
+    db.products = db.products.filter(
+      (product) => Number(product.id) !== productId,
+    );
 
-app.patch("/cart/:id", authenticateToken, asyncHandler(async (req, res) => {
-  const { quantity } = req.body || {};
+    if (db.products.length === initialLength) {
+      return res.status(404).json({ error: "Product not found" });
+    }
 
-  if (!quantity || quantity < 1) {
-    return res.status(400).json({ error: "A positive quantity is required" });
-  }
+    db.cart = db.cart.filter((item) => Number(item.productId) !== productId);
+    await writeDb(db);
 
-  const db = await readDb();
-  const item = db.cart.find((entry) => Number(entry.id) === Number(req.params.id));
+    res.json({
+      message: "Product removed successfully",
+      products: db.products,
+    });
+  }),
+);
 
-  if (!item) {
-    return res.status(404).json({ error: "Cart item not found" });
-  }
+app.get(
+  "/cart",
+  authenticateToken,
+  asyncHandler(async (req, res) => {
+    const db = await readDb();
 
-  item.quantity = Number(quantity);
-  await writeDb(db);
+    res.json({
+      message: "Cart fetched successfully",
+      cart: db.cart,
+    });
+  }),
+);
 
-  res.json({
-    message: "Cart item updated successfully",
-    item,
-  });
-}));
+app.post(
+  "/cart",
+  authenticateToken,
+  asyncHandler(async (req, res) => {
+    const { productId, quantity = 1 } = req.body || {};
 
-app.delete("/cart/:id", authenticateToken, asyncHandler(async (req, res) => {
-  const db = await readDb();
-  const initialLength = db.cart.length;
-  db.cart = db.cart.filter((item) => Number(item.id) !== Number(req.params.id));
+    if (!productId || quantity < 1) {
+      return res.status(400).json({
+        error: "Product id and a positive quantity are required",
+      });
+    }
 
-  if (db.cart.length === initialLength) {
-    return res.status(404).json({ error: "Cart item not found" });
-  }
+    const db = await readDb();
+    const product = db.products.find(
+      (entry) => Number(entry.id) === Number(productId),
+    );
 
-  await writeDb(db);
+    if (!product) {
+      return res.status(404).json({ error: "Product not found" });
+    }
 
-  res.json({
-    message: "Cart item removed successfully",
-    cart: db.cart,
-  });
-}));
+    const existingItem = db.cart.find(
+      (item) => Number(item.productId) === Number(productId),
+    );
+
+    if (existingItem) {
+      existingItem.quantity += Number(quantity);
+    } else {
+      db.cart.push({
+        id: getNextId(db.cart),
+        productId: product.id,
+        quantity: Number(quantity),
+        product,
+      });
+    }
+
+    await writeDb(db);
+
+    res.status(201).json({
+      message: "Cart updated successfully",
+      cart: db.cart,
+    });
+  }),
+);
+
+app.patch(
+  "/cart/:id",
+  authenticateToken,
+  asyncHandler(async (req, res) => {
+    const { quantity } = req.body || {};
+
+    if (!quantity || quantity < 1) {
+      return res.status(400).json({ error: "A positive quantity is required" });
+    }
+
+    const db = await readDb();
+    const item = db.cart.find(
+      (entry) => Number(entry.id) === Number(req.params.id),
+    );
+
+    if (!item) {
+      return res.status(404).json({ error: "Cart item not found" });
+    }
+
+    item.quantity = Number(quantity);
+    await writeDb(db);
+
+    res.json({
+      message: "Cart item updated successfully",
+      item,
+    });
+  }),
+);
+
+app.delete(
+  "/cart/:id",
+  authenticateToken,
+  asyncHandler(async (req, res) => {
+    const db = await readDb();
+    const initialLength = db.cart.length;
+    db.cart = db.cart.filter(
+      (item) => Number(item.id) !== Number(req.params.id),
+    );
+
+    if (db.cart.length === initialLength) {
+      return res.status(404).json({ error: "Cart item not found" });
+    }
+
+    await writeDb(db);
+
+    res.json({
+      message: "Cart item removed successfully",
+      cart: db.cart,
+    });
+  }),
+);
 
 app.use((err, req, res, next) => {
   console.error(err);
