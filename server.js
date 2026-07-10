@@ -10,7 +10,7 @@ const DB_PATH = path.join(__dirname, "db.json");
 
 app.use(
   cors({
-    origin: "https://ecomdl.netlify.app/products", // Replace with your frontend port
+    origin: "https://ecomdl.netlify.app", // Replace with your frontend port
   }),
 );
 app.use(express.json());
