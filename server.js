@@ -8,7 +8,11 @@ const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
 const DB_PATH = path.join(__dirname, "db.json");
 
-app.use(cors());
+app.use(
+  cors({
+    origin: "http://localhost:5173", // Replace with your frontend port
+  }),
+);
 app.use(express.json());
 
 const defaultDb = {
